@@ -1,6 +1,4 @@
 # MBC Language for Visual Studio Code
-MBC language extension for Visual Studio Code. 
-
 
 [**MBC Language**] support extension for Visual Studio Code. Syntax highlighting
 
