@@ -1,0 +1,973 @@
+/*==============================================================================
+** Program/Module :     pint_main_MSDeployContainer.s4
+** Description :        Based upon an export from B2Bi,
+**			.\Interchange\tools\mapProxyDeployer USER admin PASS <You need to know that> LIST,
+** 			rewrap and wash the data the data
+** Type : 		Main Program
+** Supported Products : B2Bi 2.x
+** Author :		Osten Svensson
+** Copyright :          PHOENIX group
+**==============================================================================
+** HISTORY
+** 20180616	osvensson	1.0.0	Initial version.
+** 20180621	osvensson	1.0.1	Many new features ..
+**==============================================================================*/
+
+INCLUDE "sysinfo.s4h" ONCE;
+INCLUDE "sl_file.s4h" ONCE;
+
+DECLARE $PgmVersion	= "1.0.1" CONSTANT STRING;
+
+DECLARE $laLine[]	STRING;
+
+
+/* Exmaple lines
+$laLine[1]  = "1) Name: 1AF_ord2_nomeco_1AF_ord2_nomeco | Version: 5 | Id: e06a7ddd-721c-4846-a791-6a891201fdd1 | Short Description: none | Generation Date: 2015-12-09T22:17:24.057Z | Location: CACHE";
+$laLine[2]  = "2) Name: 1AF_ord2_nomeco_1AF_ord2_nomeco | Version: 5 | Id: e69b7be1-9f82-4240-8ea3-7281be7bd7eb | Short Description: none | Generation Date: 2015-12-09T22:19:07.937Z | Location: REJECT";
+$laLine[3]  = "3) Name: 1AF_ord2_nomeco_1AF_ord2_nomeco | Version: 6 | Id: 7ca6714f-31bb-4edc-8681-ce6ebf862a1f | Short Description: none | Generation Date: 2015-12-09T22:19:28.328Z | Location: CACHE";
+$laLine[4]  = "4) Name: 1AF_ord2_nomeco_1AF_ord2_nomeco | Version: 7 | Id: d0337866-bb43-4f84-89fd-b3bbf53d4427 | Short Description: none | Generation Date: 2015-12-09T22:22:18.906Z | Location: CACHE";
+$laLine[5]  = "5) Name: AS400_AS400Insert | Version: 1 | Id: 257568d1-94c2-47b7-81fc-d7c02f6a7dc6 | Short Description: none | Generation Date: 2017-01-19T09:56:17.446Z | Location: CACHE";
+$laLine[6]  = "6) Name: AT0002_B2B_Galderma_PARTIN_IN | Version: 1 | Id: 21c5b4b6-3ca2-44c2-87fa-1cbd4bbd9803 | Short Description: resource problems in B2Bi | Generation Date: 2018-01-11T12:55:40.384Z | Location: CACHE";
+*/
+
+DECLARE PUBLIC RECORD MSDeployContainer {
+	DECLARE PUBLIC FIELD $CVerStatus	INTEGER; # 0| 1 ; 1 => the highetst version is the one is use 
+	DECLARE PUBLIC FIELD $CDateStatus	INTEGER; # 0| 1 ; 1 => the latest date & time is the one is use (mayby not with highest version number
+	DECLARE PUBLIC FIELD $CMBCStatus	INTEGER; # 0| 1 ; 1 => MBC Wrapper x4 pgm exist 
+	DECLARE PUBLIC FIELD $CZipStatus	INTEGER; # 0| 1 ; 1 => The unique ID exists in the containers/* folder/* 
+	DECLARE PUBLIC FIELD $CDBStatus		INTEGER; # 0| 1 ; 1 => It exists in Map Proxy DB 
+	DECLARE PUBLIC FIELD $CName		STRING;
+	DECLARE PUBLIC FIELD $CVersion		STRING;
+	DECLARE PUBLIC FIELD $CId		STRING;
+	DECLARE PUBLIC FIELD $CDesc		STRING;
+	DECLARE PUBLIC FIELD $CDate		DATE;
+	DECLARE PUBLIC FIELD $CLocation		STRING;	
+}
+
+DECLARE PUBLIC RECORD MSDeployContainerDiff {	
+	DECLARE PUBLIC FIELD $CName		STRING;
+	DECLARE PUBLIC FIELD $CVersionHighest	STRING;
+	DECLARE PUBLIC FIELD $CVersionLatest	STRING;
+	DECLARE PUBLIC FIELD $CDateHighest	DATE;
+	DECLARE PUBLIC FIELD $CDateLatest	DATE;
+}
+
+
+DECLARE PUBLIC RECORD MSDeployStatistics {
+	DECLARE PUBLIC FIELD $No_DB			INTEGER;
+	DECLARE PUBLIC FIELD $No_DBCache		INTEGER;
+	DECLARE PUBLIC FIELD $No_DBReject		INTEGER;
+	DECLARE PUBLIC FIELD $No_DBDeploy		INTEGER;
+	#DECLARE PUBLIC FIELD $No_DBCache_InUse		INTEGER;
+	DECLARE PUBLIC FIELD $No_Cache_InUse		INTEGER;
+	DECLARE PUBLIC FIELD $No_DBCache_InUse_NoDiff	INTEGER;
+	DECLARE PUBLIC FIELD $No_Cache			INTEGER;
+	DECLARE PUBLIC FIELD $No_Reject			INTEGER;
+	DECLARE PUBLIC FIELD $No_Deploy			INTEGER;
+	DECLARE PUBLIC FIELD $No_AutoDeploy		INTEGER;	
+}
+
+DECLARE PUBLIC RECORD MapStageInfo_X4ID {	
+	DECLARE PUBLIC FIELD $X4Pgm			STRING;
+	DECLARE PUBLIC FIELD $ContainerId		STRING;	
+}
+
+DECLARE PUBLIC RECORD ContainerXMLInfo {	
+	DECLARE PUBLIC FIELD $CFolder			STRING;
+	DECLARE PUBLIC FIELD $CFolderType		STRING;
+	DECLARE PUBLIC FIELD $ContainerId		STRING;	
+	DECLARE PUBLIC FIELD $ContainerName		STRING;
+	DECLARE PUBLIC FIELD $ContainerVersion		STRING;	
+	DECLARE PUBLIC FIELD $IntegratorVersion		STRING;
+	DECLARE PUBLIC FIELD $MapDesignerVersion	STRING;
+}
+
+DECLARE PUBLIC RECORD MSVersionCntInfo {	
+	DECLARE PUBLIC FIELD $Version			STRING;
+	DECLARE PUBLIC FIELD $Count			INTEGER;	
+}
+
+
+DECLARE $laMSVersionsCnt[]			RECORD MSVersionCntInfo;
+DECLARE $laContainers[]				RECORD ContainerXMLInfo;
+
+DECLARE $laMapStages[]				RECORD MapStageInfo_X4ID;
+DECLARE $laMSDeployContainer[]			RECORD MSDeployContainer;
+DECLARE $laMSDeployContainerDiff[]		RECORD MSDeployContainerDiff;
+DECLARE $lrMSDeployStatistics			RECORD MSDeployStatistics;
+
+DECLARE $laTmpMSDC[]				STRING;
+DECLARE $_True		= 1			CONSTANT INTEGER;
+DECLARE $_False		= 0			CONSTANT INTEGER;
+DECLARE $_Cache		= "CACHE" 		CONSTANT STRING;
+DECLARE $_Reject	= "REJECT" 		CONSTANT STRING;
+DECLARE $_Deploy	= "DEPLOY" 		CONSTANT STRING;
+DECLARE $_Slash					STRING;
+
+DECLARE $lsMapStagePath				STRING;
+DECLARE $Core_Local				STRING;
+DECLARE $Shared_Root				STRING;
+DECLARE $Shared_Cache				STRING;
+DECLARE $HostName				STRING;
+DECLARE $lsContainerPath			STRING;
+DECLARE $lsSnifferFile	= "Container.xml" 	CONSTANT STRING;
+
+DECLARE $_HighVer	= 1			CONSTANT INTEGER;
+DECLARE $_HighDate	= 1			CONSTANT INTEGER;
+
+#--------------------------------------
+DECLARE $Arg		STRING;
+DECLARE $Arg_Debug	INTEGER;
+DECLARE $Arg_Folder	STRING;
+DECLARE $Arg_Infile	STRING;
+DECLARE $Arg_Outfile	STRING;
+DECLARE $Arg_Copy	STRING;
+DECLARE $Arg_Sentinel	INTEGER;
+DECLARE $Option		STRING;
+
+#-----------------------------------------------------
+# Check the existing map stages (*.x4) and get the container Id
+#-----------------------------------------------------
+
+DECLARE STATEMENT Get_MapStageDetails IN $path PRIMITIVE MSINFO OUT $MapStageInfo[] RECORD MapStageInfo_X4ID {
+
+	DECLARE $Core_Tmp			STRING;	
+	DECLARE $laMapStage_Files[]		RECORD SL_FILE.FileInfo;
+	DECLARE $lsTmpStr			STRING;
+	DECLARE $lsCmdLineArg			STRING;
+	DECLARE $lsEOL				STRING;
+	DECLARE $liTmpStrLen			INTEGER;
+	DECLARE $liIdPos			INTEGER;
+	DECLARE $lsId				STRING;
+	DECLARE $lsRedirectFile			STRING;
+	DECLARE $Ix				INTEGER;
+	
+	$Ix = 0;
+	
+	IMPORT "CORE_TMP" INTO $Core_Tmp;
+	
+	SL_FILE.ReadDirectory $Path FILES $laMapStage_Files;
+	$lsRedirectFile = $Core_Tmp & $_Slash & "__ListWrapperx4toContainerId";
+	
+	FOR $i = 1 TO ARRAYSIZE($laMapStage_Files) {
+			
+		IF STRFORWARD($laMapStage_Files[$i].$Name,".x4") > 0 { # exclude non x4 files (*.err or *.s4)
+			
+			$lsCmdLineArg = $lsMapStagePath & $_Slash & $laMapStage_Files[$i].$Name & " 2\>" & $lsRedirectFile;
+			CALL "r4edi " & $lsCmdLineArg;
+			OPEN FILE INPUT $lsRedirectFile;
+			$Error = 0;
+			
+			READ $lsTmpStr UNTIL "\n";
+			$liTmpStrLen = STRLEN($lsTmpStr);		
+					
+			IF $liTmpStrLen > 1 {
+				IF $lsTmpStr[$liTmpStrLen-1,$liTmpStrLen-1] = "\r" {
+					$lsEOL = "\r\n";
+					$liTmpStrLen = $liTmpStrLen -1;
+				} ELSE {
+					$lsEOL = "\n";
+				}
+			} # End IF
+			
+			$liIdPos = STRFORWARD($lsTmpStr,".x4");	
+			CLOSE INPUT;
+			
+			$lsId = $lsTmpStr[$liIdPos+4,$liTmpStrLen];
+			$lsId = SL_STRING.Remove($lsId,"\r"); # Remove CR from Windows systems
+			$Ix = $Ix +1;
+			
+			$MapStageInfo[$Ix].$ContainerId = $lsId;
+			$MapStageInfo[$Ix].$X4Pgm	= $laMapStage_Files[$i].$Name;			
+			
+		} # End IF
+	} # End Loop
+	
+	RETURN;
+
+} # End Get_MapStageDetails
+
+
+
+#------------------------------------------------------------------------------
+# Check the existing container folders (container.xml) and get the container Id
+#------------------------------------------------------------------------------
+
+DECLARE STATEMENT Get_ContainerDetails 	IN $path PRIMITIVE
+			FOLDERTYPE	IN $FolderType
+			CONTAINERINFO 	IN OUT $ContainerInfo[] RECORD ContainerXMLInfo {
+
+	DECLARE $laContainer_Files[]		RECORD SL_FILE.FileInfo;	
+	DECLARE $Ix				INTEGER;
+	DECLARE $lsFld				STRING;
+	DECLARE $lsSubPath			STRING;
+	DECLARE $lsdatabuffer			STRING;
+	DECLARE $liIdPos			INTEGER;
+	DECLARE $laTagValue[]			STRING;
+	DECLARE $liHit				INTEGER;
+	
+	$Ix = ARRAYSIZE($ContainerInfo);
+		
+	SL_FILE.ReadDirectory $Path FILES $laContainer_Files;
+	
+	FOR $i = 1 TO ARRAYSIZE($laContainer_Files) {
+			
+		IF $laContainer_Files[$i].$Type = SL_FILE.$FileType_Directory {
+			$Ix  = $Ix + 1;
+			
+			$lsFld = $laContainer_Files[$i].$Name;
+			$ContainerInfo[$Ix].$CFolder = $lsFld;
+			$ContainerInfo[$Ix].$CFolderType = $FolderType;
+			
+			TRY {
+				$lsSubPath = $Path & $_Slash & $lsFld;
+				OPEN FILE INPUT $lsSubPath & $_Slash & $lsSnifferFile;
+				$Error = 0;
+				
+				NOLOG { READ $lsDataBuffer COUNT 1000; }
+				CLOSE INPUT;
+				
+				#----------------------------------------------------------------
+				# Example Container
+				# <Container id="39beba17-264f-40c2-9b64-992616f8d67f" name="TestProjectSmallMapping1_Inputxm" version="2" xsi:noNamespaceSchemaLocation="Container.xsd">
+				# <Product name="Integrator" version="3.7.0"/>
+				# <Product name="MapDesigner" version="2.5.0"/>
+				#-----------------------------------------------------------------
+						
+				$liIdPos = STRFORWARD($lsDataBuffer," id=");
+								
+				$lsDataBuffer = STRMID($lsDataBuffer,$liIdPos,STRLEN($lsDataBuffer));
+						
+				$laTagValue = SL_STRING.FieldExplode($lsDataBuffer,"\"");
+				
+				IF ARRAYSIZE ($laTagValue) > 5 {
+					$ContainerInfo[$Ix].$ContainerId = TRIMRIGHT(TRIMLEFT($laTagValue[2]," ")," ");	
+					$ContainerInfo[$Ix].$ContainerName = TRIMRIGHT(TRIMLEFT($laTagValue[4]," ")," ");	
+					$ContainerInfo[$Ix].$ContainerVersion = TRIMRIGHT(TRIMLEFT($laTagValue[6]," ")," ");
+				} # End IF
+				
+				
+				$liIdPos = STRFORWARD($lsDataBuffer,"Product name=");	
+				
+				$lsDataBuffer = STRMID($lsDataBuffer,$liIdPos,STRLEN($lsDataBuffer));
+				$laTagValue = SL_STRING.FieldExplode($lsDataBuffer,"\"");
+				
+				IF ARRAYSIZE($laTagValue) > 7 {
+					$ContainerInfo[$Ix].$IntegratorVersion = TRIMRIGHT(TRIMLEFT($laTagValue[4]," ")," ");
+					$ContainerInfo[$Ix].$MapDesignerVersion = TRIMRIGHT(TRIMLEFT($laTagValue[8]," ")," ");
+					
+					$liHit = $_False;
+					FOR $x = 1 TO ARRAYSIZE($laMSVersionsCnt) {
+						IF $laMSVersionsCnt[$x].$Version = $ContainerInfo[$Ix].$MapDesignerVersion {
+							$laMSVersionsCnt[$x].$Count = $laMSVersionsCnt[$x].$Count +1;
+							$liHit = $_True;
+							BREAK;
+						}
+					}
+					
+					IF $liHit = $_False {
+						$laMSVersionsCnt[ARRAYSIZE($laMSVersionsCnt)+1].$Version = $ContainerInfo[$Ix].$MapDesignerVersion;
+						$laMSVersionsCnt[ARRAYSIZE($laMSVersionsCnt)].$Count	 = 1;
+					}
+				}
+						
+			} CATCH $Exception
+				WHEN OTHERS {
+					$ContainerInfo[$Ix].$ContainerId = "??";					
+					$ContainerInfo[$Ix].$ContainerName = "??";
+					$ContainerInfo[$Ix].$ContainerVersion = "??";
+					$ContainerInfo[$Ix].$IntegratorVersion = "??";
+					$ContainerInfo[$Ix].$MapDesignerVersion = "??";
+					NOLOG {CLOSE INPUT;}
+				}			
+						
+		} # End IF
+	} # End Loop
+	
+	RETURN;
+
+} # End Get_ContainerDetails
+
+
+
+#----------------------------------------------------------
+# GetTagValue
+#-----------------------------------------------------------
+
+
+
+DECLARE FUNCTION GetTagValue ($lsStr,$liTime) PRIMITIVE {
+
+	DECLARE $lsValue		STRING;
+	DECLARE $laTagValue[]		STRING;
+	DECLARE $laTmpTagValue[]	STRING;
+	DECLARE $lsTmp			STRING;
+	
+	$lsTmp = $lsStr;
+	$laTagValue = SL_STRING.FieldExplode($lsTmp,":");
+	IF ARRAYSIZE($laTagValue) > 1 {
+		IF $liTime = $_False {
+			RETURN TRIMRIGHT(TRIMLEFT($laTagValue[2]," ")," ");
+		} ELSE {			
+			$laTmpTagValue = SL_STRING.FieldExplode($laTagValue[3],".");
+			$lsTmp = SL_STRING.Replace($laTagValue[2],"T"," ") & ":" & $laTagValue[3] & ":" & $laTmpTagValue[1] ;
+			RETURN TRIMRIGHT(TRIMLEFT($lsTmp," ")," ");
+		}
+	}
+	
+	RETURN $lsValue;
+}
+
+#---------------------------------------------------
+#Read CfgInput
+#Example file
+#C:\Axway\B2Bi\Interchange\bin>"C:\Axway\B2Bi\Java\win-x86\jre8_u40_64\\bin\java" -cp ..\classes;..\conf;..\jars\haboob.jar -Daxway.haboob.classpath=..\classes;..\conf;..\jars;..\corelib;..\corelib\db -Dlog4j.configuration=file:..\conf\log4j.properties -Dderby.system.home=..\derby -Djava.security.auth.login.config=..\conf\jaas.config -Daxway.cluster.logDir=C:\Axway\B2Bi\Interchange\logs -Daxway.network.machineName=DENU00MS0175 -Daxway.network.shortName=DENU00MS0175 -Daxway.network.longName=DENU00MS0175.phoenix.loc -Daxway.network.name=DENU00MS0175 -Xms256m -Xmx256m -Daxway.cluster.node.name=mapProxyDeployer com.axway.clusterold.startup.Boot com.axway.b2bi.mapproxy.deployment.MapProxyCommandLineDeployer USER admin PASS Secret1 LIST 
+#input arguments: [USER, admin, PASS, Secret1, LIST]
+#openJpa 2.1.1 - Axway Patch - M133092.v1.1
+#
+#A total of [4933] containers found in [MapProxy]. Listing containers...
+#
+#------------------------------------------------------------------------
+#| Name | Version | Id | Short Description | Generation Date | Location |
+#------------------------------------------------------------------------
+#
+#1) Name: 1AF_ord2_nomeco_1AF_ord2_nomeco | Version: 5 | Id: e06a7ddd-721c-4846-a791-6a891201fdd1 | Short Description: none | Generation Date: 2015-12-09T22:17:24.057Z | Location: CACHE
+#------------------------------------------------------------------------
+#2) Name: 1AF_ord2_nomeco_1AF_ord2_nomeco | Version: 5 | Id: e69b7be1-9f82-4240-8ea3-7281be7bd7eb | Short Description: none | Generation Date: 2015-12-09T22:19:07.937Z | Location: REJECT
+#------------------------------------------------------------------------
+
+DECLARE STATEMENT Read_CfgInput IN $lsFName PRIMITIVE {
+
+	DECLARE $lsStr 			STRING;
+	DECLARE $lsEOL			STRING;
+	DECLARE $HitStr = ") Name:" 	CONSTANT STRING;
+	DECLARE $liSIndex		INTEGER;
+	DECLARE $HitIx			INTEGER;	
+	
+	TRY {
+	
+		OPEN FILE INPUT $lsFName;
+		
+		# fix EOF
+		$lsEOL 		= "\n";
+		$Error 		= 0;
+		$liSIndex 	= 0;
+		$HitIx		= 0;
+		
+		NOLOG {			
+			READ $lsStr UNTIL $lsEOL;						
+			WHILE $Error = 0 {			
+				$liSIndex = STRFORWARD($lsStr, $HitStr);
+				IF $liSIndex > 0 {
+					$HitIx = $HitIx +1;
+					$laLine[$HitIx] = $lsStr;
+				}
+				READ $lsStr UNTIL $lsEOL;											
+			}
+			
+			$liSIndex = STRFORWARD($lsStr, $HitStr);
+			IF $liSIndex > 0 {
+				$HitIx = $HitIx +1;				
+				$laLine[$HitIx] = $lsStr;				
+			}
+		}
+		
+	} CATCH $Exception
+		WHEN OTHERS {}
+	
+	CLOSE INPUT;
+
+	RETURN;
+	
+} # End Read_CfgInput
+
+#---------------------------------------------------
+# Write CfgOutput
+#---------------------------------------------------
+DECLARE STATEMENT Write_CfgOutput IN $lsFName PRIMITIVE {
+
+	DECLARE $lsEOL		STRING;
+	DECLARE $lsTmp 		STRING;
+	DECLARE $liTmpInt	INTEGER;
+	
+	OPEN FILE OUTPUT $lsFName;
+	
+	$lsEOL 	= "\r\n";	
+	
+	PRINT "  Line | Loc. |M|Z|D|V|T|                 Id                 |        Date       |Ver|               Name              | Desc" & $lsEOL;
+	
+	#----------------------------------------------------------------------------------
+	# Print all the details OPEN 
+	#----------------------------------------------------------------------------------
+	
+	FOR $i = 1 TO ARRAYSIZE($laMSDeployContainer) {
+		$lsTmp = FORMAT("%6s",$laMSDeployContainer[$i].$CLocation) & "|" &
+			 $laMSDeployContainer[$i].$CMBCStatus & "|" &
+			 $laMSDeployContainer[$i].$CZipStatus & "|" &
+			 $laMSDeployContainer[$i].$CDBStatus & "|" &
+	 		 $laMSDeployContainer[$i].$CVerStatus & "|" &
+	 		 $laMSDeployContainer[$i].$CDateStatus & "|" &
+	 		 $laMSDeployContainer[$i].$CId & "|" &
+	 		 $laMSDeployContainer[$i].$CDate & "|" &
+	 		 FORMAT("%3s",$laMSDeployContainer[$i].$CVersion) & "|" &
+	 		 $laMSDeployContainer[$i].$CName & "|" &	 		 
+	 		 $laMSDeployContainer[$i].$CDesc;	 		  		 
+	 	PRINT "[" & FORMAT("%.5d",$i) & "]|" & $lsTmp & $lsEOL;
+	} # End Loop
+			
+	CLOSE OUTPUT;
+	RETURN;
+	
+} # End Write_CfgInput
+
+888 paska8 88 
+
+
+9+9 = 16
+
+11.111
+
+kys = 11.16
+
+
+True
+TRUE
+
+#---------------------------------------------------------------------------------------
+# ProcessCfg
+#
+# 29) Name: B2BiDetector_Attr_M3 		-> "B2BiDetector_Attr_M3"
+# Version: 1 					-> "1"
+# Id: 11b0b5c5-9235-4d92-9a6a-f6e4cbfae462 	-> "11b0b5c5-9235-4d92-9a6a-f6e4cbfae462"
+# Short Description: none 			-> "none"
+# Generation Date: 2010-04-28T15:18:14.625Z	-> "2010-04-28 15:18:14"
+# Location: CACHE				-> "CACHE" | "REJECT" | "DEPLOY"
+#----------------------------------------------------------------------------------------
+
+DECLARE STATEMENT ProcessCfg {
+	
+	DECLARE $lsLastName			STRING;
+	DECLARE $liFirstTime			INTEGER;	
+	DECLARE $liHighVerIx			INTEGER;
+	DECLARE $liHighDateIx			INTEGER;
+	DECLARE $liHighestVer			INTEGER;
+	DECLARE $liHighestDate			DATE;
+	DECLARE $lsDTStr			STRING;
+
+	$DATEFORMAT="%Y-%m-%d %H:%M:%s";
+
+	$lsLastName 	= "";
+	$liHighVerIx	= 0;
+	$liHighDateIx	= 0;  
+	$liHighestVer	= 0;
+	$liHighestDate	= "1970-01-01 00:00:00";
+	$liFirstTime 	= $_True;
+	
+	FOR $i = 1 TO ARRAYSIZE($laLine) {
+	
+		$laLine[$i] = SL_STRING.Remove($laLine[$i],"\r"); # Remove CR from Windows systems
+	
+		$laTmpMSDC = SL_STRING.FieldExplode($laLine[$i],"|");	
+		IF ARRAYSIZE ($laTmpMSDC) > 5 {	
+		 
+			$laMSDeployContainer[$i].$CName = GetTagValue($laTmpMSDC[1],$_False);
+			$laMSDeployContainer[$i].$CVersion = GetTagValue($laTmpMSDC[2],$_False); 
+			$laMSDeployContainer[$i].$CId = GetTagValue($laTmpMSDC[3],$_False); 
+			$laMSDeployContainer[$i].$CDesc	= GetTagValue($laTmpMSDC[4],$_False);
+			$lsDTStr = GetTagValue($laTmpMSDC[5],$_True);
+			$laMSDeployContainer[$i].$CDate	= $lsDTStr;		
+			$laMSDeployContainer[$i].$CLocation = GetTagValue($laTmpMSDC[6],$_False);			
+			$laMSDeployContainer[$i].$CVerStatus = $_False; 
+			$laMSDeployContainer[$i].$CDateStatus = $_False;
+			$laMSDeployContainer[$i].$CMBCStatus = $_False;
+			$laMSDeployContainer[$i].$CZipStatus = $_False;
+			$laMSDeployContainer[$i].$CDBStatus = $_True;
+			
+			#- Check which Id that's used by the wrapper program => TRUE
+			FOR $k = 1 TO ARRAYSIZE($laMapStages) {
+				IF $laMapStages[$k].$ContainerId = $laMSDeployContainer[$i].$CId {
+					$laMSDeployContainer[$i].$CMBCStatus = $_True;
+					BREAK;
+				}			
+			}
+			
+
+kus IF jj () 
+
+kys vitun IF nörtti 1.11  kdd = 11.11
+
+EXTENDER_FLOAT FOLDERTYPE 
+
+BREAK;
+IF
+
+			kys = 01.11
+			22.222
+			kys = moi()
+			#- Check which Id that's exists in the shared containers folder => TRUE
+			FOR $k = 1 TO ARRAYSIZE($laContainers) {
+				IF $laContainers[$k].$ContainerId = $laMSDeployContainer[$i].$CId {
+					$laMSDeployContainer[$i].$CZipStatus = $_True;
+					 	
+					# Check container location, should be the same in DB vs Shared ..
+					IF $laContainers[$k].$CFolderType <> $laMSDeployContainer[$i].$CLocation {
+						LOG "For the same unique Container Id [" & $laContainers[$k].$ContainerId & "], the location in DB is <> the containers subfolder (" &
+							$laContainers[$k].$CFolderType & " / " & $laMSDeployContainer[$i].$CLocation & ")" TYPE "ERROR";
+					}
+					
+					# Check container name, should be the same in DB vs Shared ..
+					IF $laContainers[$k].$ContainerName <> $laMSDeployContainer[$i].$CName {
+						LOG "For the same unique Container Id [" & $laContainers[$k].$ContainerId & "], the name in DB is <> the containers subfolder (" &
+							$laContainers[$k].$ContainerName & " / " & $laMSDeployContainer[$i].$CName & ")" TYPE "ERROR";
+					}					
+					
+					BREAK;
+				}				
+			}	
+				ks = moi()
+
+			IF $laMSDeployContainer[$i].$CLocation = $_Cache { # All other have status FALSE
+				IF $liFirstTime = $_True {	# if first time and location is cache
+					$liFirstTime = $_False;	
+					$liHighVerIx = $i;
+					$liHighDateIx = $i;
+					$liHighestVer = $laMSDeployContainer[$i].$CVersion;
+					$liHighestDate = $laMSDeployContainer[$i].$CDate;
+					$lsLastName = $laMSDeployContainer[$i].$CName;
+				} ELSE {
+					IF $laMSDeployContainer[$i].$CName <> $lsLastName { # New container name
+						# The version or date can be highest!
+						$laMSDeployContainer[$liHighVerIx].$CVerStatus = $_HighVer;	# change defualt FALSE ->						
+						$laMSDeployContainer[$liHighDateIx].$CDateStatus = $_HighDate;	# change defualt FALSE ->
+						
+						$liHighVerIx = $i;
+						$liHighDateIx = $i;
+						$liHighestVer = $laMSDeployContainer[$i].$CVersion;
+						$liHighestDate = $laMSDeployContainer[$i].$CDate;
+						$lsLastName = $laMSDeployContainer[$i].$CName;				
+					} ELSE {					
+						IF $laMSDeployContainer[$i].$CVersion > $liHighestVer {
+							$liHighVerIx = $i;
+							$liHighestVer = $laMSDeployContainer[$i].$CVersion;
+						}
+						IF $laMSDeployContainer[$i].$CDate > $liHighestDate {
+							$liHighDateIx = $i;
+							$liHighestDate = $laMSDeployContainer[$i].$CDate;
+						}						
+					} # End New Name
+				} # End IF
+			} # End IF CACHE
+		} ELSE {
+			LOG "MS Deploy Container line don't have all required fields" TYPE "ERROR";
+			EXIT;
+		}
+	
+	}
+
+	#------------------------------
+	# Update the latest one
+	#------------------------------
+ 	IF $liHighVerIx > 0 {
+	 	$laMSDeployContainer[$liHighVerIx].$CVerStatus = $_HighVer;
+	}
+	IF $liHighDateIx > 0 {
+		$laMSDeployContainer[$liHighDateIx].$CDateStatus = $_HighDate;
+	}
+	
+	RETURN;
+	
+} # End ProcessCfg
+
+
+DECLARE MODULE KYSPASKA {}
+
+DECLARE MODULE INTERFACE KYSVITTU{}
+
+#---------------------------------------------------------------------------------------
+# CreateAnalyze
+#----------------------------------------------------------------------------------------
+DECLARE STATEMENT CreateAnalyze {
+
+	DECLARE $lsTmp  	STRING;	
+	DECLARE $Ix		INTEGER;
+	DECLARE $liSize		INTEGER;
+		
+	FOR $i = 1 TO ARRAYSIZE($laContainers) {
+		CASE $laContainers[$i].$CFolderType
+		WHEN $_Cache  {	$lrMSDeployStatistics.$No_Cache  = $lrMSDeployStatistics.$No_Cache +1; }
+		WHEN $_Reject { $lrMSDeployStatistics.$No_Reject = $lrMSDeployStatistics.$No_Reject +1; }
+		WHEN $_Deploy { $lrMSDeployStatistics.$No_Deploy = $lrMSDeployStatistics.$No_Deploy +1; }
+	}
+	
+	IF $Arg_Debug > 1 AND ARRAYSIZE($laMSDeployContainer) > 0 {
+			LOG "------------------------------------------------------------------------------------------------------------------" TYPE "DEBUG";
+			LOG " Line  |  Loc. | SM| SZ| SD| SV| ST|                  Id                  |         Date        | Ver.|               Name               | Desc" TYPE "DEBUG";
+			LOG "------------------------------------------------------------------------------------------------------------------" TYPE "DEBUG";
+	}
+	
+		
+	FOR $i = 1 TO ARRAYSIZE($laMSDeployContainer) {
+	
+		$lrMSDeployStatistics.$No_DB = $lrMSDeployStatistics.$No_DB  + 1;		
+		
+		CASE $laMSDeployContainer[$i].$CLocation
+		WHEN $_Cache {
+		
+			$lrMSDeployStatistics.$No_DBCache  = $lrMSDeployStatistics.$No_DBCache +1;
+		
+			#----------------------------------------------------------------------------
+			# For some of the instances, the highst version is NOT the latest Date & Time
+			# This need to be checked
+			#----------------------------------------------------------------------------			
+		
+			IF $laMSDeployContainer[$i].$CVerStatus = $_HighVer AND $laMSDeployContainer[$i].$CDateStatus = $_HighDate {			
+				$lrMSDeployStatistics.$No_DBCache_InUse_NoDiff = $lrMSDeployStatistics.$No_DBCache_InUse_NoDiff +1;				
+			} ELSE IF $laMSDeployContainer[$i].$CVerStatus > 0 OR $laMSDeployContainer[$i].$CDateStatus > 0 {
+			
+				$liSize	= ARRAYSIZE($laMSDeployContainerDiff);
+				$Ix    	= 0; # Reset Diff index 
+				
+				FOR $j = 1 TO $liSize {
+					IF $laMSDeployContainerDiff[$j].$CName = $laMSDeployContainer[$i].$CName { # Found
+						$Ix = $j;
+						BREAK;
+					}	
+				} # End Loop
+			
+				IF $Ix = 0 { # Add new item
+			
+					$liSize = $liSize +1;
+					$laMSDeployContainerDiff[$liSize].$CName = $laMSDeployContainer[$i].$CName;
+				
+					IF $laMSDeployContainer[$i].$CVerStatus = $_HighVer {					
+						$laMSDeployContainerDiff[$liSize].$CVersionHighest = $laMSDeployContainer[$i].$CVersion;
+						$laMSDeployContainerDiff[$liSize].$CDateHighest    = $laMSDeployContainer[$i].$CDate;					
+					} ELSE IF $laMSDeployContainer[$i].$CDateStatus = $_HighDate {					
+						$laMSDeployContainerDiff[$liSize].$CVersionLatest = $laMSDeployContainer[$i].$CVersion;
+						$laMSDeployContainerDiff[$liSize].$CDateLatest    = $laMSDeployContainer[$i].$CDate;
+					} # End If
+				
+				
+				} ELSE { # Update existing item
+					IF $laMSDeployContainer[$i].$CVerStatus = $_HighVer {					
+						$laMSDeployContainerDiff[$Ix].$CVersionHighest = $laMSDeployContainer[$i].$CVersion;
+						$laMSDeployContainerDiff[$Ix].$CDateHighest    = $laMSDeployContainer[$i].$CDate;					
+					} ELSE IF $laMSDeployContainer[$i].$CDateStatus = $_HighDate {					
+						$laMSDeployContainerDiff[$Ix].$CVersionLatest = $laMSDeployContainer[$i].$CVersion;
+						$laMSDeployContainerDiff[$Ix].$CDateLatest    = $laMSDeployContainer[$i].$CDate;
+					} # End If
+			
+				}			
+			} # End Diff check
+		} #End Cache
+		WHEN $_Reject { $lrMSDeployStatistics.$No_DBReject = $lrMSDeployStatistics.$No_DBReject +1; }
+		WHEN $_Deploy { $lrMSDeployStatistics.$No_DBDeploy = $lrMSDeployStatistics.$No_DBDeploy +1; }
+			
+		IF $Arg_Debug > 1 {			
+			$lsTmp = FORMAT("%6s",$laMSDeployContainer[$i].$CLocation) & " | " &			
+		 	$laMSDeployContainer[$i].$CMBCStatus & " | " &
+		 	$laMSDeployContainer[$i].$CZipStatus & " | " &
+		 	$laMSDeployContainer[$i].$CDBStatus & " | " &
+		 	$laMSDeployContainer[$i].$CVerStatus & " | " &
+		 	$laMSDeployContainer[$i].$CDateStatus & " | " &
+		 	$laMSDeployContainer[$i].$CId & " | " &
+		 	$laMSDeployContainer[$i].$CDate & " | " &
+		 	FORMAT("%3s",$laMSDeployContainer[$i].$CVersion) & " | " &
+		 	$laMSDeployContainer[$i].$CName & " | " &	 		 
+		 	$laMSDeployContainer[$i].$CDesc;		 
+			LOG "[" & FORMAT("%.5d",$i) & "] " & $lsTmp TYPE "DEBUG";			
+		} # End IF
+		
+	} # End Loop
+	
+	#-------------------------------------------------------------
+	# Check for the total of all wrapper if there is a cache folder
+	# with the same unique Id
+	#-------------------------------------------------------------
+	
+	FOR $k = 1 TO ARRAYSIZE($laMapStages) {
+		FOR $i = 1 TO ARRAYSIZE($laContainers) {
+			IF $laContainers[$i].$CFolderType = $_Cache {
+				IF $laMapStages[$k].$ContainerId = $laContainers[$i].$ContainerId {				
+					$lrMSDeployStatistics.$No_Cache_InUse = $lrMSDeployStatistics.$No_Cache_InUse +1;
+					BREAK;
+				}
+			}				
+		}	
+	}
+			
+	IF $Arg_Debug > 0 AND ARRAYSIZE($laMapStages) > 0 {
+		LOG "---------------------------------------------------------------------------------------------------------------" TYPE "DEBUG";
+		LOG " Line  |       Map Stage Program (*.x4)        |      Container Id      " TYPE "DEBUG";
+		LOG "---------------------------------------------------------------------------------------------------------------" TYPE "DEBUG";
+		
+		FOR $i = 1 TO ARRAYSIZE($laMapStages) {
+			$lsTmp = $laMapStages[$i].$X4Pgm & " | " &
+				 $laMapStages[$i].$ContainerId;		 
+			LOG "[" & FORMAT("%.5d",$i) & "] " & $lsTmp TYPE "DEBUG";
+		}
+		
+		IF ARRAYSIZE($laContainers) > 0 {		
+			$lsTmp = "";
+			FOR $i = 1 TO ARRAYSIZE($laMSVersionsCnt) {
+				$lsTmp = $lsTmp & "[" & $laMSVersionsCnt[$i].$Version & " - " & $laMSVersionsCnt[$i].$Count & "] ";
+			}		
+				
+			LOG "---------------------------------------------------------------------------------------------------------------" TYPE "DEBUG";
+			LOG " Map's divided by Designer Version: " & $lsTmp TYPE "DEBUG";
+			LOG " Line  |  Shared Container Folder   |             Container Id            |            Container Name             | Version | Int.Ver | Designer Ver" TYPE "DEBUG";
+			LOG "---------------------------------------------------------------------------------------------------------------" TYPE "DEBUG";
+		}
+		
+		FOR $i = 1 TO ARRAYSIZE($laContainers) {		
+			$lsTmp = $laContainers[$i].$CFolder & " | " &
+				 $laContainers[$i].$ContainerId & " | " &
+				 $laContainers[$i].$ContainerName & " | " & 
+				 $laContainers[$i].$ContainerVersion & " | " &
+				 $laContainers[$i].$IntegratorVersion & " | " &
+				 $laContainers[$i].$MapDesignerVersion; 
+			LOG "[" & FORMAT("%.5d",$i) & "] " & $lsTmp TYPE "DEBUG";		
+		}
+	}
+		
+	RETURN;
+
+} # End CreateAnalyze
+
+
+
+#---------------------------------------------------------------------------------------
+# DisplayStatistics
+#----------------------------------------------------------------------------------------
+DECLARE STATEMENT DisplayStatistics {	
+	
+	DECLARE $liTmpInt	INTEGER;
+	DECLARE $lsTmp		STRING;
+		
+	$liTmpInt = $lrMSDeployStatistics.$No_DBCache_InUse_NoDiff + ARRAYSIZE($laMSDeployContainerDiff);
+	
+	$lsTmp = "";
+	FOR $i = 1 TO ARRAYSIZE($laMSVersionsCnt) {
+		$lsTmp = $lsTmp & "[" & $laMSVersionsCnt[$i].$Version & " - " & $laMSVersionsCnt[$i].$Count & "] ";
+	}
+	
+	LOG "" TYPE "DEBUG";	
+	LOG " ################# Output from the Mapping Service Container Analyze for host: (" & $HostName & ")  ################" TYPE "DEBUG";
+	LOG " --> Map Stage Path in Integrator            : " & $lsMapStagePath TYPE "DEBUG";
+	LOG " --> Shared Container Path in B2Bi           : " & $lsContainerPath TYPE "DEBUG";
+	LOG " --> If argument -c, auto deploy folder      : " & $Arg_Copy TYPE "DEBUG";
+	
+	LOG "" TYPE "DEBUG";
+	LOG " --> No of Containers in Map Proxy (DB)      : " & $lrMSDeployStatistics.$No_DB TYPE "DEBUG";
+	LOG " --> No of Containers in Cache (DB / FS)     : " & $lrMSDeployStatistics.$No_DBCache & " / " & $lrMSDeployStatistics.$No_Cache TYPE "DEBUG";
+	LOG " --> No of Containers in Reject (DB / FS)    : " & $lrMSDeployStatistics.$No_DBReject & " / " & $lrMSDeployStatistics.$No_Reject TYPE "DEBUG";
+	LOG " --> No of Containers in Deploy (DB / FS)    : " & $lrMSDeployStatistics.$No_DBDeploy & " / " & $lrMSDeployStatistics.$No_Deploy TYPE "DEBUG";
+	LOG " --> No of Containers in <Use> (DB / FS)     : " & $liTmpInt & " / " & $lrMSDeployStatistics.$No_Cache_InUse TYPE "DEBUG";	
+	LOG " --> No of MBC Map Stage Wrappers (Total)    : " & ARRAYSIZE($laMapStages) TYPE "DEBUG";
+	LOG " --> Map's divided by Designer Version       : " & $lsTmp TYPE "DEBUG";
+	LOG " --> No of Containers copied to Auto Folder  : " & $lrMSDeployStatistics.$No_AutoDeploy TYPE "DEBUG";		
+	LOG " --> Difference between version and date     : " & ARRAYSIZE($laMSDeployContainerDiff) TYPE "DEBUG";	
+	LOG "" TYPE "DEBUG";
+		
+	LOG " Command (executed as B2Bi user) to get rid of unnessessary/unused containers, do the following:" TYPE "DEBUG";
+	LOG " --> Clean all REJECT   : ." & $_Slash & "Interchange" & $_Slash & "tools" & $_Slash & "mapProxyDeployer USER admin PASS <??> REMOVE ALL REJECT" TYPE "DEBUG";
+	LOG " --> Clean unique CACHE : ." & $_Slash & "Interchange" & $_Slash & "tools" & $_Slash & "mapProxyDeployer USER admin PASS <??> REMOVE <Id>" TYPE "DEBUG";
+	LOG "" TYPE "DEBUG";
+	LOG " After the cleaning, run: ." & $_Slash & "Interchange" & $_Slash & "tools" & $_Slash & "mapProxyDeployer USER admin PASS <??> FORCE_SYNC" TYPE "DEBUG";			
+	LOG " ################################################## Done ####################################################" TYPE "DEBUG";
+	LOG "" TYPE "DEBUG";
+		
+	#----------------------------------------------------------------------------------
+	# Display those entries where highest version have not the latest date & time stamp 
+	#----------------------------------------------------------------------------------
+		
+	IF $Arg_Debug > 0 AND ARRAYSIZE($laMSDeployContainerDiff) > 0 {		
+		LOG " ############ List MS Containers where highest version is not the latest date & time stamp ##########" TYPE "DEBUG";
+		FOR $i = 1 TO ARRAYSIZE($laMSDeployContainerDiff) {
+			LOG " Name = " & $laMSDeployContainerDiff[$i].$CName TYPE "DEBUG";
+			LOG "    --> Highest Version    (version/date) = " & $laMSDeployContainerDiff[$i].$CVersionHighest & " / " & $laMSDeployContainerDiff[$i].$CDateHighest TYPE "DEBUG";
+			LOG "    --> Latest Date & Time (version/date) = " & $laMSDeployContainerDiff[$i].$CVersionLatest & " / " & $laMSDeployContainerDiff[$i].$CDateLatest TYPE "DEBUG";
+		}
+		LOG " #################################################### Done ######################################################" TYPE "DEBUG";
+	LOG "" TYPE "DEBUG";
+	}
+			
+	RETURN;
+
+} # End DisplayStatistics
+
+
+#---------------------------------------------------------------------------------------
+# CopyAutoDeployFolder
+#----------------------------------------------------------------------------------------
+DECLARE STATEMENT CopyDeployFolder IN $CopyPath PRIMITIVE {
+
+	DECLARE $laFiles[]	RECORD SL_FILE.FileInfo;
+	DECLARE $lsCopyFile	STRING;
+	DECLARE $lsTmp		STRING;
+	DECLARE $liPos		INTEGER;
+	
+		
+	#--------------------------------------------------
+	# For the existing *.x4 with unique Id,
+	# find the container in cache folder with same Id
+	# and copy the zip file inside the folder
+	#--------------------------------------------------
+		
+	FOR $m = 1 TO ARRAYSIZE($laMapStages) { 	
+		FOR $i = 1 TO ARRAYSIZE($laContainers) {
+			IF $laContainers[$i].$CFolderType = $_Cache {
+				IF $laMapStages[$m].$ContainerId = $laContainers[$i].$ContainerId { # Match
+							
+					SL_FILE.ReadDirectory $CopyPath & $_Slash & $laContainers[$i].$CFolder FILES $laFiles;
+				
+					$lsCopyFile = "";
+				
+					FOR $f = 1 TO ARRAYSIZE($laFiles) {					
+						$lsTmp = $laFiles[$f].$Name;
+						$liPOs = 0;
+						$liPos = STRFORWARD($lsTmp,".zip");	
+						IF $liPos > 0 {
+							$lsCopyFile = $laFiles[$f].$Name;
+							BREAK;
+						}
+					}
+				
+					IF $lsCopyFile <> "" {					
+						FILE COPY $CopyPath & $_Slash & $laContainers[$i].$CFolder & $_Slash & $lsCopyFile TO $Arg_Copy & $_Slash & $lsCopyFile;
+						$lrMSDeployStatistics.$No_AutoDeploy = $lrMSDeployStatistics.$No_AutoDeploy +1;
+					}
+				
+					BREAK;				
+				} # End IF
+			} # End IF
+		} # End Container folders
+	} # End X4 programs
+
+	RETURN;
+	
+} # End CopyDeployFolder
+
+
+#---------------------------------------------------------------------------------------
+# GapFinder
+#----------------------------------------------------------------------------------------
+DECLARE STATEMENT GapFinder {
+
+	DECLARE $Found		INTEGER;	
+	DECLARE $CntMS		INTEGER;
+	DECLARE $CntContainers	INTEGER;
+	DECLARE $Cnt		INTEGER;
+	DECLARE $iX1		INTEGER;
+	
+	$Ix1 = 1;
+	
+	
+	$CntMS 		= ARRAYSIZE($laMapStages);
+	$CntContainers	= 0;
+	$Cnt		= 0;
+	
+	FOR $i = 1 TO ARRAYSIZE($laContainers) {
+		IF $laContainers[$i].$CFolderType = $_Cache {
+			$CntContainers = $CntContainers +1;		
+		}	
+	}
+		
+	FOR $j = 1 TO ARRAYSIZE($laMapStages) {
+		FOR $i = 1 TO ARRAYSIZE($laContainers) {
+			IF $laContainers[$i].$CFolderType = $_Cache AND $laContainers[$i].$ContainerId = $laMapStages[$j].$ContainerId {
+				$Cnt = $Cnt +1;
+				BREAK;
+			}	
+		}
+	}
+	
+	LOG "Total Map Stages					: " & $CntMS;
+	LOG "Total Containers in Cache				: " & $CntContainers;
+	LOG "Total Matched Map Stages in Cache Containers	: " & $Cnt;
+	
+	RETURN;
+	
+} # End GapFinder
+
+
+$Arg_Debug		= 0;
+$Arg_Folder		= "";
+$Arg_Infile		= "";
+$Arg_Outfile		= "";
+$Arg_Copy		= "";
+$Arg_Sentinel		= 0;
+
+$_Slash = SL_PATH.DirectorySeparator();
+
+IMPORT "CORE_LOCAL" INTO $Core_Local;
+IMPORT "B2BI_SHARED_ROOT" INTO $Shared_Root;
+IMPORT "CORE_HOST" INTO $HostName;
+
+WHILE 1
+{
+    SL_ARGUMENT.GetOption "?d:f:i:o:c:s:" OPTION $option ARGUMENT $arg;
+    
+    CASE $option
+    WHEN "d" { $Arg_Debug    		= $arg; } 
+    WHEN "f" { $Arg_Folder     		= $arg; } 
+    WHEN "i" { $Arg_Infile	    	= $arg; }
+    WHEN "o" { $Arg_Outfile	    	= $arg; }
+    WHEN "c" { $Arg_Copy	    	= $arg; }
+    WHEN "s" { $Arg_Sentinel	    	= $arg; }
+    
+    WHEN "?" { PRINTERR "Usage for program pint_main_MSDeployContainer (" & $PgmVersion & "): \n" & 
+    			"-f (Folder for input/output cfg file)\n" & 
+    			"-i (Input cfg file)\n" & 
+                        "-o (Output analyse file)\n" & 
+                        "-c (Copy used zip containers to this folder)\n" & 
+                        "-s (Send to Sentinel (0/1) [0])\n" &                         
+    			"-d (Debug (0/1/2) [0])\n"; EXIT; }                                                                     
+    WHEN "" { BREAK; }
+}
+
+$Shared_Root = SL_STRING.Remove($Shared_Root,"root");
+$lsContainerPath = $Shared_Root & "common" & $_Slash & "b2bi" & $_Slash & "containers" & $_Slash;
+$lsMapStagePath  = $Core_Local & $_Slash & "config" & $_Slash & "runtime" & $_Slash & "b2bx" & $_Slash & "mapstage";
+		
+TRY {
+
+	DECLARE $lsTmp	STRING;
+	
+	Get_MapStageDetails $lsMapStagePath MSINFO $laMapStages;			
+	Get_ContainerDetails $lsContainerPath & "cache" FOLDERTYPE $_Cache CONTAINERINFO $laContainers;
+	Get_ContainerDetails $lsContainerPath & "reject" FOLDERTYPE $_Reject CONTAINERINFO $laContainers;
+	Get_ContainerDetails $lsContainerPath & "deploy" FOLDERTYPE $_Deploy CONTAINERINFO $laContainers;
+	
+	IF $Arg_Folder <> "" AND $Arg_Infile <> "" {
+	
+		$lsTmp = $Arg_Folder & $_Slash & $Arg_Infile;
+		Read_CfgInput $lsTmp;	
+		
+		ProcessCfg;
+		
+		CreateAnalyze;	
+						
+		IF $Arg_Outfile <> "" {
+			Write_CfgOutput $Arg_Folder & $_Slash & $Arg_Outfile;
+		}
+	} ELSE {	
+		CreateAnalyze;	
+	}
+	
+			
+	IF $Arg_Copy <> "" {
+		CopyDeployFolder ($lsContainerPath & "cache");
+	}
+		
+	IF $Arg_Sentinel > 0 {
+		LOG "Sending Container data to Sentinel is not implemented yet!" TYPE "DEBUG";			
+	}
+		
+	DisplayStatistics;
+	
+	#GapFinder;
+
+} CATCH $Exception 
+    	     WHEN OTHERS { }
+    	     

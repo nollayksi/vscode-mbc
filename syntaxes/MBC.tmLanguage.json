@@ -1,0 +1,162 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "MBC",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#variables"
+		},
+		{
+			"include": "#varTypes"
+		},
+		{
+			"include": "#functions"
+		},
+		{
+			"include": "#modules"
+		},
+		{
+			"include": "#comparison"
+		},
+		{
+			"include": "#bitwise"
+		},
+		{
+			"include": "#arithmetic"
+		},
+		{
+			"include": "#numerics"
+		},
+		{
+			"include": "#constants"
+		}
+		
+	],
+	"repository": {
+		"keywords": {
+			"documentation": "Keywords are defined from an enumeration list extracted from Axway documentation",
+			"patterns": [{
+				"name": "keyword.control.MBC",
+				"match": "\\b(?i)(ALERTER|AND|ARGUMENT|ARGUMENTCOUNT|BREAK|CALL|CASE|CATCH|CHECK_OCCURRENCES|CLOSE|CONTAINER|DATABASE|DEBUG|DECLARE|DETECT_UNPARSED_DATA|ELSE|END|EXEC_SQL|EXECUTE|EXIT|EXPORT|FAULT_TOLERANCE_LEVEL|FIELD|FILE|FILES|FOLDERTYPE|FOR|FUNCTION|IF|IMPORT|IN|INCLUDE|INFO|INPUT|INTERFACE|INTO|LOAD|LOADPGM|LOG|LOG_NAME|LOOP|MAPOBJNAME|MODULE|MSINFO|NOLOG|ONCE|OPEN|OTHERS|OUT|OUTPUT|PRINT|PRINTERR|PUBLIC|READ|REGISTER|RELEASE|RETURN|SERIALIZE|SLEEP|SOCKET\\.ACCEPT|SOCKET\\.GET|SOCKET\\.NGET|SOCKET\\.NPUT|SOCKET.PUT|STATEMENT|SUSPEND|SWITCH|THROW|TO|TRY|TYPE|UNLOADPGM|UNSERIALIZE|WHEN|WHILE)(?=\\s*;*)\\b"
+			}]
+		},
+		"varTypes": {
+			"documentation": "Variable types are defined from an enumeration list extracted from Axway documentation",
+			"patterns": [{
+				"name": "storage.type.MBC",
+				"match": "\\b(?i)(EXTENDER_INTEGER|EXTENDER_FLOAT|EXTENDER_STRING|EXTENDER_INTEGER_VECTOR|EXTENDER_FLOAT_VECTOR|EXTENDER_STRING_VECTOR|INTEGER_VECTOR|FLOAT_VECTOR|STRING_VECTOR|STRING|CHAR|VOID|DATE|PRIMITIVE|INTEGER|RECORD|CONSTANT)\\b"
+			}]
+		},
+		"comparison": {
+			"documentation": "Comparison characters",
+			"patterns": [{
+				"name": "keyword.operator.comparison.MBC",
+				"match": "(=|<>|<|>|<=|>=|BNOT|BAND|BOR|BXOR|NOT|BSHIFT|AND|OR|XOR)"
+			}]
+		},
+		"arithmetic": {
+			"documentation": "Arithmetic characters",
+			"patterns": [{
+				"name": "keyword.operator.arithmetic.MBC",
+				"match": "[+|-|*|\/|%|=]"
+			}]
+		},
+		"bitwise": {
+			"documentation": "Bitwise types from enumeration list",
+			"patterns": [{
+				"name": "keyword.operator.bitwise.MBC",
+				"match": "[\\||&]"
+			}]
+		},
+		"strings": {
+			"documentation": "Strings are defined to be everything in double quotes.",
+			"name": "string.quoted.double.MBC",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.MBC",
+					"match": "\\\\."
+				}
+			]
+		},
+		"constants": {
+			"documentation": "Constants such as true or false",
+			"patterns": [{
+				"name": "constant.language.MBC",
+				"match": "\\b(?i)(True|False|null)\\b"
+			}]
+		},
+		"numerics": {
+			"documentation": "Matches all the numeric values",
+			"patterns": [{
+				"name": "constant.numeric.decimal.MBC",
+				"match": "(?<![[:alpha:]]|[-])([-]?\\b[[:digit:]]+[\\.]?[[:digit:]]*\\b)"
+			}]
+		},
+		"comments": {
+			"documentation": "Single line comments start with # and block comments start with */ and end with */ ",
+			"patterns": [
+			  {
+				"begin": "/\\*",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.begin.MBC"
+				  }
+				},
+				"end": "\\*/",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.end.MBC"
+				  }
+				},
+				"patterns": [
+				  {
+					"include": "#comments"
+				  }
+				],
+				"name": "comment.block.documentation.MBC"
+			  },
+			  {
+				"begin": "#",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.begin.MBC"
+				  }
+				},
+				"end": "$",
+				"name": "comment.line.double-slash.MBC"
+			  }
+			]
+		  },
+		  "variables": {
+			"documentation": "",
+			"patterns": [{
+				"name": "variable.other.definition.MBC",
+				"match": "[$][[:alnum:]_-]*"
+			}]
+		},
+		"functions": {
+			"documentation": "Function definitions are detected by parantheses.",
+
+			"patterns": [{
+				"name": "entity.name.function.MBC",
+				"match": "([[:alnum:]_-]*)(?=\\s*\\()"
+			},
+			{
+				"name": "entity.name.function.MBC",
+				"match": "(?<=\\.)([[:alnum:]_-]*)"
+			}
+		]
+		}
+	},
+	"scopeName": "source.mbc"
+}

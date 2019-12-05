@@ -1,0 +1,25 @@
+{
+    "name": "mbc-language",
+    "displayName": "MBC Language",
+    "description": "Syntax highlighting for MBC",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.35.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [{
+            "id": "MBC",
+            "aliases": ["MBC", "MBC"],
+            "extensions": [".s4",".s4h","s4m"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "MBC",
+            "scopeName": "source.mbc",
+            "path": "./syntaxes/MBC.tmLanguage.json"
+        }]
+    }
+}
