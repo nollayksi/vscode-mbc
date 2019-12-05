@@ -3,7 +3,7 @@
     "displayName": "MBC Language",
     "description": "Syntax highlighting for MBC",
     "repository": "https://github.com/nollayksi/vscode-mbc",
-    "icon": "./images/icon.png",
+    "icon": "images/icon.png",
     "publisher": "Vili",
     "version": "1.0.1",
     "engines": {
@@ -23,7 +23,7 @@
             "language": "MBC",
             "scopeName": "source.mbc",
             "path": "./syntaxes/MBC.tmLanguage.json"
-        }],
+        }]
         
     }
 }
