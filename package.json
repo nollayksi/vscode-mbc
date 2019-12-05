@@ -1,11 +1,11 @@
 {
     "name": "mbc-language",
     "displayName": "MBC Language",
-    "description": "Syntax highlighting for MBC",
+    "description": "Syntax highlighting for Axway's MBC",
     "repository": "https://github.com/nollayksi/vscode-mbc",
     "icon": "images/icon.png",
     "publisher": "Vili",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "engines": {
         "vscode": "^1.40.0"
     },

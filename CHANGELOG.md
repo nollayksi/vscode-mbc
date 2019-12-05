@@ -2,8 +2,15 @@
 
 All notable changes to the "mbc-language" extension will be documented in this file.
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [1.0.2]
+
+- Updated the description to be more descriptive
+
+## [1.0.1]
+
+- Added icon to marketplace site
+
+## [1.0.0]
 
 - Initial release
